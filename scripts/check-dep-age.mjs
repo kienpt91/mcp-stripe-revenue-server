@@ -3,9 +3,11 @@
 // after a cutoff date. Exit code 1 if any are found.
 //
 //   node scripts/check-dep-age.mjs [cutoff-iso-date]
+//
+// Without an argument the cutoff is 7 days before now (the dependency policy).
 import { readFileSync } from "node:fs";
 
-const cutoff = new Date(process.argv[2] ?? "2026-09-30T00:00:00Z");
+const cutoff = new Date(process.argv[2] ?? Date.now() - 7 * 24 * 60 * 60 * 1000);
 if (Number.isNaN(cutoff.getTime())) {
   console.error("Invalid cutoff date");
   process.exit(2);

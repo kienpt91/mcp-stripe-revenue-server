@@ -390,7 +390,7 @@ Settings, all optional environment variables:
 - **Use a restricted, read-only key** (`rk_...`). The server never writes, but a full secret key (`sk_...`) would let anything with access to the process do far more; the server prints a warning to stderr when it is given one.
 - The key is read from the environment only. It is not logged, and anything that looks like a Stripe key is redacted from error messages returned to the client.
 - Tool results contain customer ids and billing emails. Set `REDACT_EMAILS=true` to mask the emails, and only connect clients you trust with the rest.
-- Dependencies are pinned to exact versions that were published at least 30 days before the pin date, and `npm run check:deps-age` verifies that for the whole lockfile. Advisories whose fixes are newer than that are tracked in [SECURITY.md](SECURITY.md).
+- Dependencies are pinned to exact versions that were published at least 7 days before the pin date, installed with `--ignore-scripts` inside a throwaway container, and `npm run check:deps-age` verifies that for the whole lockfile. Advisories whose fixes are newer than that are tracked in [SECURITY.md](SECURITY.md).
 
 ## Project layout
 
