@@ -33,6 +33,19 @@ export const PAID_INVOICE_LOOKBACK_SECONDS = 60 * 86_400;
 
 const PAGE_SIZE = 100;
 
+/** Upper bound on objects read per list operation before the source gives up. */
+export const DEFAULT_MAX_ITEMS = 50_000;
+
+export class TooManyItemsError extends Error {
+  constructor(what: string, limit: number) {
+    super(
+      `Stopped reading ${what}: more than ${limit} objects. ` +
+        "Raise STRIPE_MAX_ITEMS if this account is really that large, or use a shorter window.",
+    );
+    this.name = "TooManyItemsError";
+  }
+}
+
 const STATUSES: ReadonlySet<string> = new Set<SubscriptionStatus>([
   "active",
   "trialing",
@@ -105,8 +118,21 @@ export function mapFailedInvoice(invoice: Stripe.Invoice): FailedInvoice {
   };
 }
 
+/** Yield items from a paginated Stripe list, failing once more than `limit` have been read. */
+async function* capped<T>(source: AsyncIterable<T>, limit: number, what: string): AsyncGenerator<T> {
+  let count = 0;
+  for await (const item of source) {
+    count += 1;
+    if (count > limit) throw new TooManyItemsError(what, limit);
+    yield item;
+  }
+}
+
 export class StripeSource implements RevenueSource {
-  constructor(private readonly stripe: StripeReadClient) {}
+  constructor(
+    private readonly stripe: StripeReadClient,
+    private readonly maxItems: number = DEFAULT_MAX_ITEMS,
+  ) {}
 
   async listSubscriptions(): Promise<Subscription[]> {
     const couponCache = new Map<string, Promise<Stripe.Coupon>>();
@@ -121,11 +147,8 @@ export class StripeSource implements RevenueSource {
     };
 
     const result: Subscription[] = [];
-    for await (const raw of this.stripe.subscriptions.list({
-      status: "all",
-      limit: PAGE_SIZE,
-      expand: ["data.discounts"],
-    })) {
+    const list = this.stripe.subscriptions.list({ status: "all", limit: PAGE_SIZE, expand: ["data.discounts"] });
+    for await (const raw of capped(list, this.maxItems, "subscriptions")) {
       result.push(await this.mapSubscription(raw, coupon));
     }
     return result;
@@ -134,11 +157,12 @@ export class StripeSource implements RevenueSource {
   async listFailedInvoices(range: TimeRange): Promise<FailedInvoice[]> {
     const result: FailedInvoice[] = [];
     for (const status of ["open", "uncollectible"] as const) {
-      for await (const invoice of this.stripe.invoices.list({
+      const list = this.stripe.invoices.list({
         status,
         created: { gte: range.from, lt: range.to },
         limit: PAGE_SIZE,
-      })) {
+      });
+      for await (const invoice of capped(list, this.maxItems, `${status} invoices`)) {
         if (invoice.attempt_count >= 1) result.push(mapFailedInvoice(invoice));
       }
     }
@@ -147,11 +171,12 @@ export class StripeSource implements RevenueSource {
 
   async listPaidInvoices(range: TimeRange): Promise<PaidInvoice[]> {
     const result: PaidInvoice[] = [];
-    for await (const invoice of this.stripe.invoices.list({
+    const list = this.stripe.invoices.list({
       status: "paid",
       created: { gte: range.from - PAID_INVOICE_LOOKBACK_SECONDS, lt: range.to },
       limit: PAGE_SIZE,
-    })) {
+    });
+    for await (const invoice of capped(list, this.maxItems, "paid invoices")) {
       const paidAt = invoice.status_transitions.paid_at ?? invoice.created;
       if (paidAt < range.from || paidAt >= range.to || invoice.amount_paid <= 0) continue;
       result.push({
@@ -201,12 +226,12 @@ export class StripeSource implements RevenueSource {
   }
 }
 
-export function createStripeSource(apiKey: string, appVersion: string): StripeSource {
+export function createStripeSource(apiKey: string, appVersion: string, maxItems = DEFAULT_MAX_ITEMS): StripeSource {
   const client = new Stripe(apiKey, {
     maxNetworkRetries: 2,
     appInfo: { name: "mcp-stripe-revenue-server", version: appVersion },
   });
-  return new StripeSource(client);
+  return new StripeSource(client, maxItems);
 }
 
 /** Warn about keys that grant more than read access. */

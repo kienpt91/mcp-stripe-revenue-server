@@ -2,8 +2,10 @@ import type Stripe from "stripe";
 import { describe, expect, it, vi } from "vitest";
 import { computeMrr } from "../src/calc.js";
 import {
+  DEFAULT_MAX_ITEMS,
   PAID_INVOICE_LOOKBACK_SECONDS,
   StripeSource,
+  TooManyItemsError,
   describeKeyRisk,
   mapDiscount,
   type StripeReadClient,
@@ -355,6 +357,50 @@ describe("StripeSource invoices", () => {
       ["in_in", 4000],
       ["in_nopaidat", 900],
     ]);
+  });
+});
+
+describe("max items guard", () => {
+  const range = { from: ts("2025-06-01T00:00:00Z"), to: ts("2025-06-15T00:00:00Z") };
+
+  it("fails with a clear error once more than maxItems subscriptions are read", async () => {
+    const fake = fakeStripe({ subscriptions: [rawSub({ id: "a" }), rawSub({ id: "b" }), rawSub({ id: "c" })] });
+    const source = new StripeSource(fake.client, 2);
+    await expect(source.listSubscriptions()).rejects.toThrow(TooManyItemsError);
+    await expect(source.listSubscriptions()).rejects.toThrow(/more than 2 objects.*STRIPE_MAX_ITEMS/);
+  });
+
+  it("allows exactly maxItems objects", async () => {
+    const fake = fakeStripe({ subscriptions: [rawSub({ id: "a" }), rawSub({ id: "b" })] });
+    expect(await new StripeSource(fake.client, 2).listSubscriptions()).toHaveLength(2);
+  });
+
+  it("stops pulling pages as soon as the limit is exceeded", async () => {
+    let pulled = 0;
+    async function* endless(): AsyncGenerator<Stripe.Subscription> {
+      for (;;) {
+        pulled += 1;
+        yield rawSub({ id: `sub_${pulled}` });
+      }
+    }
+    const fake = fakeStripe();
+    fake.client.subscriptions.list = () => endless();
+    await expect(new StripeSource(fake.client, 5).listSubscriptions()).rejects.toThrow(TooManyItemsError);
+    expect(pulled).toBe(6);
+  });
+
+  it("applies to invoice lists too, naming the list that overflowed", async () => {
+    const invoices = (p: Stripe.InvoiceListParams) =>
+      p.status === "open" ? [rawInvoice({ id: "1" }), rawInvoice({ id: "2" })] : [];
+    const failed = new StripeSource(fakeStripe({ invoices }).client, 1);
+    await expect(failed.listFailedInvoices(range)).rejects.toThrow(/open invoices/);
+
+    const paid = new StripeSource(fakeStripe({ invoices: () => [rawInvoice(), rawInvoice()] }).client, 1);
+    await expect(paid.listPaidInvoices(range)).rejects.toThrow(/paid invoices/);
+  });
+
+  it("defaults to 50,000", () => {
+    expect(DEFAULT_MAX_ITEMS).toBe(50_000);
   });
 });
 
