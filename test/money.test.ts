@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { currencyExponent, formatMoney } from "../src/money.js";
-import { redactSecrets } from "../src/redact.js";
+import { maskEmail, redactSecrets } from "../src/redact.js";
 
 describe("formatMoney", () => {
   it("formats two-decimal currencies", () => {
@@ -25,5 +25,19 @@ describe("redactSecrets", () => {
   it("removes Stripe keys of every kind and leaves other text alone", () => {
     const text = "bad key sk_live_51Habc123 and rk_test_ZZ99 or pk_live_abc; code 401";
     expect(redactSecrets(text)).toBe("bad key [redacted] and [redacted] or [redacted]; code 401");
+  });
+});
+
+describe("maskEmail", () => {
+  it("keeps the first character and the domain", () => {
+    expect(maskEmail("jane.doe@example.com")).toBe("j***@example.com");
+    expect(maskEmail("a@b.io")).toBe("a***@b.io");
+    expect(maskEmail("billing@northwind.example")).toBe("b***@northwind.example");
+  });
+
+  it("passes null through and fully masks values that are not an email", () => {
+    expect(maskEmail(null)).toBeNull();
+    expect(maskEmail("not-an-email")).toBe("***");
+    expect(maskEmail("@example.com")).toBe("***");
   });
 });

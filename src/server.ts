@@ -22,6 +22,8 @@ export interface RevenueServerOptions {
   source: RevenueSource;
   /** Current time in Unix seconds. Injectable so tests and demo mode are deterministic. */
   now?: () => number;
+  /** Mask customer emails in tool output (j***@example.com). Default false. */
+  redactEmails?: boolean;
 }
 
 const days = z
@@ -48,6 +50,7 @@ function fail(tool: string, error: unknown): CallToolResult {
 
 export function createRevenueServer(options: RevenueServerOptions): McpServer {
   const { source } = options;
+  const redactEmails = options.redactEmails ?? false;
   const now = options.now ?? (() => Math.floor(Date.now() / 1000));
   const server = new McpServer({ name: "mcp-stripe-revenue-server", version: packageVersion });
 
@@ -123,7 +126,7 @@ export function createRevenueServer(options: RevenueServerOptions): McpServer {
       try {
         const range = window(windowDays);
         const invoices = await source.listFailedInvoices(range);
-        return ok(presentFailedPayments(computeFailedPayments(invoices, range, limit), range));
+        return ok(presentFailedPayments(computeFailedPayments(invoices, range, limit), range, { redactEmails }));
       } catch (error) {
         return fail("list_failed_payments", error);
       }

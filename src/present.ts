@@ -10,6 +10,7 @@ import type {
   RevenueSummaryResult,
 } from "./calc.js";
 import { formatMoney } from "./money.js";
+import { maskEmail } from "./redact.js";
 import type { TimeRange } from "./types.js";
 
 export const iso = (unixSeconds: number): string => new Date(unixSeconds * 1000).toISOString();
@@ -62,7 +63,11 @@ function presentFailedTotals(byCurrency: FailedPaymentsResult["byCurrency"]) {
   }));
 }
 
-export function presentFailedPayments(result: FailedPaymentsResult, period: TimeRange) {
+export function presentFailedPayments(
+  result: FailedPaymentsResult,
+  period: TimeRange,
+  options: { redactEmails?: boolean } = {},
+) {
   return {
     period: presentPeriod(period),
     totalCount: result.totalCount,
@@ -71,7 +76,7 @@ export function presentFailedPayments(result: FailedPaymentsResult, period: Time
     invoices: result.invoices.map((i) => ({
       id: i.id,
       customerId: i.customerId,
-      customerEmail: i.customerEmail,
+      customerEmail: options.redactEmails ? maskEmail(i.customerEmail) : i.customerEmail,
       amountDue: i.amountDue,
       amountDueFormatted: formatMoney(i.amountDue, i.currency),
       currency: i.currency,

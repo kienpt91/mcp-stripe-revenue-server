@@ -17,7 +17,11 @@ async function main(): Promise<void> {
 
   // stdout carries the protocol stream, so every diagnostic goes to stderr.
   if (plan.warning) process.stderr.write(`warning: ${plan.warning}\n`);
-  const server = createRevenueServer({ source: plan.source, ...(plan.now ? { now: plan.now } : {}) });
+  const server = createRevenueServer({
+    source: plan.source,
+    redactEmails: plan.redactEmails,
+    ...(plan.now ? { now: plan.now } : {}),
+  });
   await server.connect(new StdioServerTransport());
   process.stderr.write("mcp-stripe-revenue-server ready on stdio\n");
 }

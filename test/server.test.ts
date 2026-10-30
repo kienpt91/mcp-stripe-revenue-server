@@ -127,6 +127,27 @@ describe("MCP server over a linked in-memory transport", () => {
   });
 });
 
+describe("REDACT_EMAILS", () => {
+  it("masks customer emails in list_failed_payments when enabled and shows them otherwise", async () => {
+    const plain = await connect();
+    const masked = await connect(undefined, undefined, { redactEmails: true });
+    try {
+      const open = await call(plain.client, "list_failed_payments", { days: 90 });
+      const hidden = await call(masked.client, "list_failed_payments", { days: 90 });
+      expect(open.json.invoices.map((i: any) => i.customerEmail)).toContain("billing@northwind.example");
+      expect(hidden.json.invoices.map((i: any) => i.customerEmail)).toEqual(
+        open.json.invoices.map((i: any) => i.customerEmail.replace(/^(.)[^@]*/, "$1***")),
+      );
+      expect(hidden.text).not.toContain("billing@");
+      expect(hidden.text).toContain("b***@northwind.example");
+      expect(hidden.json.invoices.map((i: any) => i.id)).toEqual(open.json.invoices.map((i: any) => i.id));
+    } finally {
+      await plain.close();
+      await masked.close();
+    }
+  });
+});
+
 describe("error handling", () => {
   it("reports source failures as tool errors and never leaks API keys", async () => {
     const key = ["sk", "live", "51HabcdefghijklmnopQRSTUV"].join("_");
