@@ -10,7 +10,7 @@ A [Model Context Protocol](https://modelcontextprotocol.io) server that answers 
 
 ## Quick start (no Stripe key needed)
 
-Requires Node.js 20 or newer (`engines` in `package.json`; developed and tested on Node 22).
+Requires Node.js 20 or newer to run the server (`engines` in `package.json`). Running the tests and building from source needs Node.js 22.12 or newer, because the test runner does; it was developed and tested on Node 22.19.
 
 ```bash
 git clone https://github.com/kienpt91/mcp-stripe-revenue-server.git
@@ -377,11 +377,20 @@ Called with `{ "limit": 2 }`. `totalCount` and `byCurrency` cover every match; `
 
 Subscriptions and invoices are fetched with automatic pagination (100 per page). The server makes `list` and `retrieve` calls only. The Stripe-backed source is covered by tests against a fake client with the same `list` / `retrieve` surface; try it against a test-mode key first.
 
+Settings, all optional environment variables:
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `STRIPE_CACHE_TTL_SECONDS` | `60` | Stripe lists (subscriptions, failed and paid invoices) are cached in memory for this long, so a burst of tool calls costs one scan. Results can be that stale. `0` disables the cache. |
+| `STRIPE_MAX_ITEMS` | `50000` | A single list read stops with a clear error once it has seen more than this many objects, instead of scanning an unbounded account. |
+| `REDACT_EMAILS` | `false` | `true` masks customer emails in `list_failed_payments` output (`billing@northwind.example` becomes `b***@northwind.example`). |
+
 ### Security
 
 - **Use a restricted, read-only key** (`rk_...`). The server never writes, but a full secret key (`sk_...`) would let anything with access to the process do far more; the server prints a warning to stderr when it is given one.
 - The key is read from the environment only. It is not logged, and anything that looks like a Stripe key is redacted from error messages returned to the client.
-- Tool results contain customer ids and billing emails. Only connect clients you trust with that data.
+- Tool results contain customer ids and billing emails. Set `REDACT_EMAILS=true` to mask the emails, and only connect clients you trust with the rest.
+- Dependencies are pinned to exact versions that were published at least 30 days before the pin date, and `npm run check:deps-age` verifies that for the whole lockfile. Advisories whose fixes are newer than that are tracked in [SECURITY.md](SECURITY.md).
 
 ## Project layout
 
@@ -391,8 +400,9 @@ Subscriptions and invoices are fetched with automatic pagination (100 per page).
 | `src/types.ts` | Domain model and the `RevenueSource` interface |
 | `src/stripe-source.ts` | `RevenueSource` backed by the `stripe` package |
 | `src/memory-source.ts`, `src/demo-data.ts` | In-memory source and the deterministic demo dataset |
-| `src/server.ts`, `src/present.ts` | MCP tool registration and JSON presentation |
-| `src/plan.ts`, `src/cli.ts` | Argument handling and the stdio entry point |
+| `src/cached-source.ts` | TTL cache decorator for any `RevenueSource` |
+| `src/server.ts`, `src/present.ts`, `src/redact.ts` | MCP tool registration, JSON presentation, email masking and key redaction |
+| `src/plan.ts`, `src/cli.ts` | Argument and environment handling, and the stdio entry point |
 
 To plug in another data source, implement `RevenueSource` (three async methods) and pass it to `createRevenueServer({ source })`.
 
@@ -409,6 +419,7 @@ The tests need no network or API keys. They cover:
 - the calculations (interval normalization, discount windows and edge cases, per-currency grouping, zero-division in churn);
 - the Stripe mapping, using a fake client;
 - the MCP layer through the SDK client over a linked in-memory transport, and against a real `--demo` child process over stdio;
+- the cache (TTL expiry, shared in-flight requests, no cached failures) and the max-items guard;
 - this README: every JSON example above is compared with the live tool output.
 
 `npm run demo` runs the CLI in demo mode straight from the TypeScript sources.
