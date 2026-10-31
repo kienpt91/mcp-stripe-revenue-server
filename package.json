@@ -31,7 +31,7 @@
     "analytics"
   ],
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.32.1",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "stripe": "23.0.1",
     "zod": "4.6.7"
   },
